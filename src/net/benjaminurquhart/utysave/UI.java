@@ -6,6 +6,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
 import java.io.File;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 
@@ -17,21 +19,36 @@ import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.filechooser.FileFilter;
 
+import org.ini4j.Ini;
+
+import net.benjaminurquhart.utysave.ds.DSGrid;
+import net.benjaminurquhart.utysave.ds.DSUtil;
+
 public class UI extends JPanel implements ActionListener {
 	
 	private static final long serialVersionUID = -8751465600892495447L;
+	private static final Object lock = new Object();
 	
 	public JProgressBar progressBar;
 	public JButton importButton, exportButton, saveButton;
 	public ImagePanel imageView;
 	
+	private Ini save;
+	private File file;
+	private DSGrid grid;
+	private boolean ready;
+	
 	private final JFileChooser saveSelector = new JFileChooser(), imageSelector = new JFileChooser();
 	
-	private static UI instance;
+	private static volatile UI instance;
 	
 	public static UI getInstance() {
 		if(instance == null) {
-			instance = new UI();
+			synchronized(lock) {
+				if(instance == null) {
+					instance = new UI();
+				}
+			}
 		}
 		return instance;
 	}
@@ -53,17 +70,6 @@ public class UI extends JPanel implements ActionListener {
 		saveButton = new JButton("Save");
 		saveButton.setActionCommand("save");
 		saveButton.addActionListener(this);
-		
-		imageView = new ImagePanel();
-		imageView.setImage(ExportWorker.render(Main.grid));
-		
-		setLayout(new BorderLayout());
-		
-		add(imageView, BorderLayout.PAGE_START);
-		add(importButton, BorderLayout.LINE_START);
-		add(saveButton, BorderLayout.CENTER);
-		add(exportButton, BorderLayout.LINE_END);
-		add(progressBar, BorderLayout.PAGE_END);
 		
 		saveSelector.setFileSelectionMode(JFileChooser.FILES_ONLY);
 		saveSelector.setFileFilter(new FileFilter() {
@@ -90,6 +96,46 @@ public class UI extends JPanel implements ActionListener {
 				return "Image File";
 			}
 		});
+		
+		file = new File(System.getenv("LOCALAPPDATA") + "/Undertale_Yellow/Save.sav");
+		while(!file.exists() || file.isDirectory()) {
+			if(saveSelector.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+				file = saveSelector.getSelectedFile();
+			}
+			else {
+				System.exit(0);
+				return;
+			}
+		}
+		imageView = new ImagePanel();
+		
+		setLayout(new BorderLayout());
+		
+		add(imageView, BorderLayout.PAGE_START);
+		add(importButton, BorderLayout.LINE_START);
+		add(saveButton, BorderLayout.CENTER);
+		add(exportButton, BorderLayout.LINE_END);
+		add(progressBar, BorderLayout.PAGE_END);
+		
+		ready = true;
+		GenericWorker worker = new GenericWorker("Loading...", () -> {
+			try {
+				disableControls();
+				save = new Ini(file);
+				String idData = save.get("SworksFlags", "sworks_id");
+				idData = idData.substring(1, idData.length() - 1);
+				ByteBuffer buff = ByteBuffer.wrap(DSUtil.decodeHexString(idData));
+				buff.order(ByteOrder.LITTLE_ENDIAN);
+				buff.getInt();
+				grid = new DSGrid(buff);
+				imageView.setImage(ExportWorker.render(grid));
+				onFinish(null);
+			}
+			catch(Exception e) {
+				onFinish(e);
+			}
+		});
+		worker.execute();
 	}
 
 	@Override
@@ -98,7 +144,7 @@ public class UI extends JPanel implements ActionListener {
 		case "import": {
 			disableControls();
 			if(imageSelector.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-				ImportWorker worker = new ImportWorker(imageSelector.getSelectedFile(), Main.grid);
+				ImportWorker worker = new ImportWorker(imageSelector.getSelectedFile(), grid);
 				worker.execute();
 				disableControls();
 			}
@@ -107,39 +153,46 @@ public class UI extends JPanel implements ActionListener {
 			}
 		} break;
 		case "export": {
-			ExportWorker worker = new ExportWorker(new File("id.png"), Main.grid);
+			ExportWorker worker = new ExportWorker(new File("id.png"), grid);
 			worker.execute();
 			disableControls();
 		} break;
 		case "save": {
-			try {
-				disableControls();
-				Main.save.put("SworksFlags", "sworks_id", "\"" + Main.grid.serialize() + "\"");
-				Main.save.store(Main.file);
-				onFinish(null);
-				progressBar.setString("Saved");
-			}
-			catch(Exception e) {
-				onFinish(e);
-			}
+			GenericWorker worker = new GenericWorker("Saving...", () -> {
+				try {
+					disableControls();
+					save.put("SworksFlags", "sworks_id", "\"" + grid.serialize() + "\"");
+					save.store(file);
+					onFinish(null);
+					progressBar.setString("Saved");
+				}
+				catch(Exception e) {
+					onFinish(e);
+				}
+			});
+			worker.execute();
 		} break;
 		}
 	}
 	
 	private void disableControls() {
-		importButton.setEnabled(false);
-		exportButton.setEnabled(false);
-		saveButton.setEnabled(false);
-		
-		Main.frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+		if(ready) {
+			importButton.setEnabled(false);
+			exportButton.setEnabled(false);
+			saveButton.setEnabled(false);
+			
+			Main.frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+		}
 	}
 	
 	private void enableControls() {
-		importButton.setEnabled(true);
-		exportButton.setEnabled(true);
-		saveButton.setEnabled(true);
-		
-		Main.frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		if(ready) {
+			importButton.setEnabled(true);
+			exportButton.setEnabled(true);
+			saveButton.setEnabled(true);
+			
+			Main.frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		}
 	}
 	
 	public void onFinish(Throwable e) {
@@ -163,15 +216,5 @@ public class UI extends JPanel implements ActionListener {
 		enableControls();
 		progressBar.setIndeterminate(false);
 		progressBar.setValue(0);
-	}
-	
-	public static void updateProgressBar(String state, String msg, int pos, int num) {
-		JProgressBar progressBar = getInstance().progressBar;
-		progressBar.setIndeterminate(false);
-		progressBar.setStringPainted(true);
-		progressBar.setString(state + " - " + msg);
-		progressBar.setMaximum(num);
-		progressBar.setMinimum(0);
-		progressBar.setValue(pos);
 	}
 }
