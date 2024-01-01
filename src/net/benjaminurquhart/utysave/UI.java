@@ -126,7 +126,6 @@ public class UI extends JPanel implements ActionListener {
 				idData = idData.substring(1, idData.length() - 1);
 				ByteBuffer buff = ByteBuffer.wrap(DSUtil.decodeHexString(idData));
 				buff.order(ByteOrder.LITTLE_ENDIAN);
-				buff.getInt();
 				grid = new DSGrid(buff);
 				imageView.setImage(ExportWorker.render(grid));
 				onFinish(null);

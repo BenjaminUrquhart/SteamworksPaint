@@ -39,7 +39,12 @@ public class ExportWorker extends SwingWorker<Void, Void> {
 		int color;
 		for(int y = 0; y < grid.height; y++) {
 			for(int x = 0; x < grid.width; x++) {
-				color = ((Number)grid.grid[y][x]).intValue();
+				if(grid.grid[y][x] instanceof Number n) {
+					color = n.intValue();
+				}
+				else {
+					color = 0;
+				}
 				if(color > 0) {
 					raster.setPixel(x, y, Main.COLORS[color - 1]);
 				}

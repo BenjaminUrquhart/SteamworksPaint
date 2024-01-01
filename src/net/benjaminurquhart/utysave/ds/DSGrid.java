@@ -6,12 +6,13 @@ import java.nio.ByteBuffer;
 
 import com.google.common.io.LittleEndianDataOutputStream;
 
-public class DSGrid {
+public class DSGrid extends DSStruct {
 	
 	public final int width, height;
 	public final Object[][] grid;
 	
 	public DSGrid(ByteBuffer buff) {
+		verifyHeader(buff, StructType.GRID);
 		width = buff.getInt();
 		height = buff.getInt();
 		grid = new Object[height][width];

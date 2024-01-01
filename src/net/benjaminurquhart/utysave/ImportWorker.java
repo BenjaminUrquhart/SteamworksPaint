@@ -2,12 +2,14 @@ package net.benjaminurquhart.utysave;
 
 import java.awt.Graphics;
 import java.awt.Image;
+import java.awt.Toolkit;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
 import javax.imageio.ImageIO;
+import javax.swing.JOptionPane;
 import javax.swing.SwingWorker;
 
 import net.benjaminurquhart.utysave.ds.DSGrid;
@@ -28,8 +30,21 @@ public class ImportWorker extends SwingWorker<Void, Void> {
 		try {
 			ui.progressBar.setIndeterminate(true);
 			ui.progressBar.setString("Converting...");
-			renderToGrid(ImageIO.read(file), grid);
-			ui.imageView.setImage(ExportWorker.render(grid));
+			BufferedImage img = ImageIO.read(file);
+			if(img == null) {
+				Toolkit.getDefaultToolkit().beep();
+				ui.progressBar.setString("Invalid file");
+				JOptionPane.showMessageDialog(
+						null, 
+						"Not an image file", 
+						"Invalid File", 
+						JOptionPane.ERROR_MESSAGE
+				);
+			}
+			else {
+				renderToGrid(img, grid);
+				ui.imageView.setImage(ExportWorker.render(grid));
+			}
 			ui.onFinish(null);
 		}
 		catch(Exception e) {
@@ -48,7 +63,9 @@ public class ImportWorker extends SwingWorker<Void, Void> {
 		for(int x = 0; x < grid.width; x++) {
 			for(int y = 0; y < grid.height; y++) {
 				pixel = image.getRGB(x, y);
-				grid.grid[y][x] = (pixel >> 24) == 0 ? 0 : colorMaps.computeIfAbsent(pixel, p -> {
+				
+				// Double cast for compatibility with current save editors
+				grid.grid[y][x] = (double)((pixel >> 24) == 0 ? 0 : colorMaps.computeIfAbsent(pixel, p -> {
 					int best = 0, tmp;
 					int bestDist = Integer.MAX_VALUE;
 					for(int i = 0; i < Main.COLORS.length; i++) {
@@ -59,7 +76,12 @@ public class ImportWorker extends SwingWorker<Void, Void> {
 						}
 					}
 					return best;
-				});
+				}));
+				
+				// Listen, if this happens, congrats I guess??
+				if(colorMaps.size() > 100000) {
+					colorMaps.clear();
+				}
 			}
 		}
 	}
